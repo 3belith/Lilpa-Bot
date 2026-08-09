@@ -576,7 +576,7 @@ if __name__ == "__main__":
             logger.error("Discord Token or Gemini API Keys are not properly set in environment variables.")
         else:
             print("DISCORD LOGIN START")
-            bot.run(bot.cfg.TOKEN, log_handler=None)
+            bot.run(bot.cfg.TOKEN)
             print("DISCORD LOGIN END")
     except KeyboardInterrupt:
         logger.info("Keyboard Interrupt detected. Shutting down.")
