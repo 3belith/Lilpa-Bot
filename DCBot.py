@@ -19,7 +19,7 @@ bot = discord.Client(intents=intents)
 
 history = {}
 
-with open("prompt.txt", "r", encoding="utf-8") as f:
+with open("personality.txt", "r", encoding="utf-8") as f:
         SYSTEM_PROMPT = f.read()
 
 def get_question(message):
