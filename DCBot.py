@@ -1,29 +1,92 @@
 import os
-
 import discord
 from dotenv import load_dotenv
 from google import genai
-
+from time import time
 
 load_dotenv()
 
+spam_data = {}
+SPAM_LIMIT = 5
+SPAM_INTERVAL = 10
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+api_keys = [
 
-ai = genai.Client(api_key=GEMINI_API_KEY)
+    os.getenv("GEMINI_API_KEY_1"),
+    os.getenv("GEMINI_API_KEY_2"),
+    os.getenv("GEMINI_API_KEY_3"),
+    os.getenv("GEMINI_API_KEY_4"),
+    os.getenv("GEMINI_API_KEY_5"),
+    os.getenv("GEMINI_API_KEY_6")
+]
 
+api_keys = [
+    key for key in api_keys
+    if key
+]
+key_index = 0
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = discord.Client(intents=intents)
-
 history = {}
+cooldowns = {}
+COOLDOWN = 3
+def get_ai():
+
+    global key_index
+
+    client = genai.Client(
+        api_key=api_keys[key_index]
+    )
+
+    key_index = (
+        key_index + 1
+    ) % len(api_keys)
+
+    return client
+        
+def is_cooldown(user_id):
+
+    now = time()
+
+    last = cooldowns.get(user_id, 0)
+
+    if now - last < COOLDOWN:
+        return True
+
+    cooldowns[user_id] = now
+
+    return False
+
+async def send_answer(message, text):
+
+    for i in range(0, len(text), 2000):
+
+        await message.reply(
+            text[i:i + 2000],
+            mention_author=False
+        )
 
 with open("personality.txt", "r", encoding="utf-8") as f:
-        SYSTEM_PROMPT = f.read()
+    SYSTEM_PROMPT = f.read()
+
+
+def is_spam(user_id):
+    now = time()
+    messages = spam_data.get(user_id, [])
+    messages.append(now)
+    messages = [
+        t for t in messages
+        if now - t <= SPAM_INTERVAL
+    ]
+
+    spam_data[user_id] = messages
+
+    return len(messages) >= SPAM_LIMIT
+
+
 
 def get_question(message):
-
     return (
         message.content
         .replace(f"<@{bot.user.id}>", "")
@@ -32,8 +95,8 @@ def get_question(message):
     )
 
 
-def make_prompt(user_id, question):
 
+def make_prompt(user_id, question):
     previous = history.get(
         user_id,
         {"user": "", "assistant": ""}
@@ -53,14 +116,23 @@ def make_prompt(user_id, question):
 """
 
 
+
 def ask_ai(prompt):
 
-    response = ai.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
-    )
+    try:
 
-    return response.text
+        client = get_ai()
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+
+        return response.text or "엄..."
+
+    except Exception:
+
+        return "오류가 발생했어."
 
 
 def save_history(user_id, question, answer):
@@ -71,20 +143,32 @@ def save_history(user_id, question, answer):
     }
 
 
+
 @bot.event
 async def on_ready():
 
     print(f"{bot.user} 실행 완료")
 
 
+
 @bot.event
 async def on_message(message):
-
     if message.author.bot:
         return
-
     if bot.user not in message.mentions:
         return
+    if is_cooldown(message.author.id):
+        await message.reply("ㄱㄷ")
+        return
+    if is_spam(message.author.id):
+
+        await message.reply(
+            "도배 ㄴ",
+            mention_author=False
+    )
+
+        return
+
 
     question = get_question(message)
 
@@ -102,16 +186,28 @@ async def on_message(message):
 
         answer = ask_ai(prompt)
 
+        if answer.startswith("<MOD>"):
+
+            warning = answer.replace(
+                "<MOD>",
+                ""
+            ).strip()
+
+            await message.delete()
+
+            await message.channel.send(
+                f"{message.author.mention} {warning}"
+            )
+
+            return
+
         save_history(
             message.author.id,
             question,
             answer
         )
 
-        await message.reply(
-            answer[:2000],
-            mention_author=False
-        )
+        await send_answer(message, answer)
 
     except Exception as e:
 
@@ -119,6 +215,9 @@ async def on_message(message):
             f"오류: {e}",
             mention_author=False
         )
+
+
+
 
 
 bot.run(DISCORD_TOKEN)
