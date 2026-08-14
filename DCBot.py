@@ -147,36 +147,40 @@ async def on_message(message):
         return
     if bot.user not in message.mentions:
         return
+
     if is_cooldown(message.author.id):
         await message.reply("ㄱㄷ")
         return
-        
+
     question = get_question(message)
-    
+
     if not question:
         await message.reply(
             f"{message.author.mention} {random.choice(EMPTY_MESSAGES)}",
             mention_author=False
-        )    
+        )
         return
-        
-    async with message.channel.typing():
-        answer = ask_ai(prompt)
-    
+
     try:
         prompt = make_prompt(
             message.author.id,
             question
         )
-        answer = ask_ai(prompt)
-        
-        if answer.startswith("<MOD>"):
-            warning = answer.replace(
-                "<MOD>",
-                ""
-            ).strip()
 
-            await message.delete()
+        async with message.channel.typing():
+            answer = ask_ai(prompt)
+
+        # MOD 처리
+        if answer.startswith("<MOD>"):
+            warning = answer[len("<MOD>"):].strip()
+
+            # 원래 사용자가 보낸 메시지 삭제
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+
+            # MOD 뒤의 문구만 출력
             await message.channel.send(
                 f"{message.author.mention} {warning}"
             )
@@ -187,7 +191,9 @@ async def on_message(message):
             question,
             answer
         )
+
         await send_answer(message, answer)
+
     except Exception as e:
         await message.reply(
             f"오류: {e}",
