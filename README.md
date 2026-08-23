@@ -10,8 +10,4 @@ LilpaBot AI is a smart, interactive Discord bot powered by Artificial Intelligen
 * **Custom Persona (Mesugaki Style):** Watch out for her bratty and teasing attitude! She features a cheeky "Mesugaki" personality that will playfully mock, roast, and look down on server members, keeping the chat highly entertaining.
 * **Smart Assistance:** Can answer questions, brainstorm ideas, or just be a great chat companion using AI (even if she calls you a loser while helping you out!).
 
-### Contents
 
-1. [Main File](DCBot.py)
-2. [Prompt File](personality.txt)
-3. [requirements](requirements.txt)
