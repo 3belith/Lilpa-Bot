@@ -33,8 +33,8 @@ def load_system_prompt(path: str | os.PathLike[str] | None = None) -> str:
 
 
 class LilpaAI:
-    def __init__(self, model: str = "gemini-2.5-flash") -> None:
-        self.model = model
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.system_prompt = load_system_prompt()
         self.api_keys = get_api_keys()
 
