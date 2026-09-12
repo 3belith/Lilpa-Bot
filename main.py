@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import logging
 import os
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -98,6 +101,15 @@ async def send_answer(message: discord.Message, text: str) -> None:
 @bot.event
 async def on_ready() -> None:
     print(f"{bot.user} 실행 완료")
+
+
+@bot.event
+async def on_error(event: str, *args: object, **kwargs: object) -> None:
+    error = sys.exc_info()[1]
+    if isinstance(error, OSError) and error.errno == errno.ENOENT:
+        return
+
+    logging.getLogger(__name__).exception("Discord event failed: %s", event)
 
 
 @bot.event
