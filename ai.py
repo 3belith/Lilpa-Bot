@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -54,7 +55,7 @@ class LilpaAI:
     def generate(self, prompt: str) -> str:
         last_error: Exception | None = None
 
-        for _ in range(len(self.api_keys)):
+        for attempt in range(len(self.api_keys)):
             try:
                 client = self._get_client()
                 response = client.models.generate_content(
@@ -65,8 +66,14 @@ class LilpaAI:
                 return response.text or "엄..."
             except Exception as exc:
                 last_error = exc
+                if "429" in str(exc) or "resource exhausted" in str(exc).lower():
+                    time.sleep(min(2 ** attempt, 8))
                 continue
 
         if last_error is not None:
+            if "429" in str(last_error) or "resource exhausted" in str(last_error).lower():
+                raise RuntimeError(
+                    "Gemini 요청 한도(429)에 도달했어. 잠시 후 다시 시도해줘."
+                ) from last_error
             raise RuntimeError(f"Gemini 응답 실패: {last_error}")
         raise RuntimeError("Gemini 응답 실패: 사용 가능한 API 키가 없습니다.")
