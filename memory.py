@@ -9,6 +9,8 @@ class ConversationMemory:
         self._history: defaultdict[Any, deque[dict[str, Any]]] = defaultdict(
             lambda: deque(maxlen=maxlen)
         )
+        self._summaries: defaultdict[Any, str] = defaultdict(str)
+        self.max_summary_words = 80
         self.recent_turns = recent_turns
         self.summary_prefix = "[이전 대화 요약]\n"
 
@@ -21,7 +23,15 @@ class ConversationMemory:
         *,
         is_moderation: bool = False,
     ) -> None:
-        self._history[channel_id].append(
+        history = self._history[channel_id]
+        if len(history) == history.maxlen:
+            evicted = history[0]
+            self._summaries[channel_id] = self._merge_summary(
+                self._summaries[channel_id],
+                self._default_summary([evicted]),
+            )
+
+        history.append(
             {
                 "username": username,
                 "user": question,
@@ -45,7 +55,8 @@ class ConversationMemory:
     ) -> str:
         recent = self._visible_items(channel_id)
         if not recent:
-            return "(아직 최근 대화 없음)"
+            summary = self._summaries[channel_id]
+            return f"{self.summary_prefix}{summary}" if summary else "(아직 최근 대화 없음)"
 
         lines: list[str] = []
         for item in recent:
@@ -53,7 +64,8 @@ class ConversationMemory:
             lines.append(f'릴파: {item["assistant"]}')
 
         text = "\n".join(lines)
-        if len(text.split()) <= max_words:
+        stored_summary = self._summaries[channel_id]
+        if len(text.split()) <= max_words and not stored_summary:
             return text
 
         if summary_callback is None:
@@ -62,14 +74,40 @@ class ConversationMemory:
         older_items = recent[:-self.recent_turns] if len(recent) > self.recent_turns else []
         recent_items = recent[-self.recent_turns:]
 
-        summary = summary_callback(older_items) if older_items else "최근 대화 시작"
+        new_summary = summary_callback(older_items) if older_items else "최근 대화 시작"
+        summary = self._merge_summary(stored_summary, new_summary)
+        self._summaries[channel_id] = summary
         recent_lines: list[str] = []
         for item in recent_items:
             recent_lines.append(f'{item["username"]}: {item["user"]}')
             recent_lines.append(f'릴파: {item["assistant"]}')
 
         recent_text = "\n".join(recent_lines)
-        return f"{self.summary_prefix}{summary}\n\n[최근 대화]\n{recent_text}"
+        prefix_words = len(self.summary_prefix.split())
+        section_words = len("[최근 대화]".split())
+        summary = self._trim_words(
+            summary,
+            max(1, max_words - prefix_words - section_words - 1),
+        )
+        summary_text = f"{self.summary_prefix}{summary}"
+        fixed_words = len(summary_text.split()) + section_words
+        recent_text = self._trim_words(
+            recent_text,
+            max(1, max_words - fixed_words),
+        )
+        return f"{summary_text}\n\n[최근 대화]\n{recent_text}"
+
+    def _merge_summary(self, previous: str, latest: str) -> str:
+        words = f"{previous} {latest}".split()
+        if len(words) > self.max_summary_words:
+            words = words[-self.max_summary_words:]
+        return " ".join(words)
+
+    def _trim_words(self, text: str, max_words: int) -> str:
+        words = text.split()
+        if len(words) <= max_words:
+            return text
+        return " ".join(words[-max_words:])
 
     def _default_summary(self, items: list[dict[str, Any]]) -> str:
         if not items:

@@ -30,6 +30,17 @@ class TestConversationMemory(unittest.TestCase):
         self.assertIn("짧은 요약", context)
         self.assertTrue(summary_called["value"])
 
+    def test_long_term_summary_and_context_stay_bounded(self):
+        memory = ConversationMemory(maxlen=4)
+
+        for i in range(100):
+            memory.append("channel-1", "user", f"question {i} " * 20, "answer " * 20)
+
+        context = memory.build_context("channel-1", max_words=60)
+
+        self.assertLessEqual(len(memory._summaries["channel-1"].split()), 80)
+        self.assertLessEqual(len(context.split()), 60)
+
 
 if __name__ == "__main__":
     unittest.main()
