@@ -53,6 +53,14 @@ class LilpaAI:
         self._key_index = (self._key_index + 1) % len(self.api_keys)
         return client
 
+    def _is_daily_quota_error(self, error: Exception) -> bool:
+        message = str(error).lower()
+        return (
+            "generate_content_free_tier_requests" in message
+            or "perdayperprojectpermodel" in message
+            or "per day per project per model" in message
+        )
+
     def generate(self, prompt: str) -> str:
         last_error: Exception | None = None
 
@@ -67,11 +75,17 @@ class LilpaAI:
                 return response.text or "엄..."
             except Exception as exc:
                 last_error = exc
+                if self._is_daily_quota_error(exc):
+                    break
                 if "429" in str(exc) or "resource exhausted" in str(exc).lower():
                     time.sleep(min(2 ** attempt, 8))
                 continue
 
         if last_error is not None:
+            if self._is_daily_quota_error(last_error):
+                raise RuntimeError(
+                    "Gemini 무료 요금제의 오늘 요청 한도(20회)를 모두 사용했어."
+                ) from last_error
             if "429" in str(last_error) or "resource exhausted" in str(last_error).lower():
                 raise RuntimeError(
                     "Gemini 요청 한도(429)에 도달했어. 잠시 후 다시 시도해줘."
