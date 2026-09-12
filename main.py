@@ -31,6 +31,7 @@ bot = discord.Client(intents=intents)
 ai = LilpaAI()
 memory = ConversationMemory(maxlen=10, recent_turns=4)
 cooldowns: dict[int, float] = {}
+processing_messages: set[int] = set()
 COOLDOWN_SECONDS = 1.0
 MAX_CHARS = 2000
 MAX_PROMPT_WORDS = 180
@@ -120,16 +121,26 @@ async def on_message(message: discord.Message) -> None:
     if bot.user not in message.mentions:
         return
 
+    if message.id in processing_messages:
+        return
+    processing_messages.add(message.id)
+
     if is_cooldown(message.author.id):
-        await message.reply("ㄱㄷ", mention_author=False)
+        try:
+            await message.reply("ㄱㄷ", mention_author=False)
+        finally:
+            processing_messages.discard(message.id)
         return
 
     question = get_question(message)
     if not question:
-        await message.reply(
-            f"{message.author.mention} {random.choice(EMPTY_MESSAGES)}",
-            mention_author=False,
-        )
+        try:
+            await message.reply(
+                f"{message.author.mention} {random.choice(EMPTY_MESSAGES)}",
+                mention_author=False,
+            )
+        finally:
+            processing_messages.discard(message.id)
         return
 
     try:
@@ -162,6 +173,8 @@ async def on_message(message: discord.Message) -> None:
         await send_answer(message, answer)
     except Exception as exc:
         await message.reply(f"오류: {exc}", mention_author=False)
+    finally:
+        processing_messages.discard(message.id)
 
 
 def run_bot() -> None:
