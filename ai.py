@@ -16,7 +16,11 @@ def get_api_keys() -> list[str]:
         os.getenv(f"GEMINI_API_KEY_{index}")
         for index in range(1, 7)
     ]
-    return [key for key in api_keys if key]
+    return [
+        key.strip()
+        for key in api_keys
+        if key and key.strip() and not key.strip().lower().startswith("your_")
+    ]
 
 
 def load_system_prompt(path: str | os.PathLike[str] | None = None) -> str:
@@ -33,7 +37,9 @@ class LilpaAI:
         self.api_keys = get_api_keys()
 
         if not self.api_keys:
-            raise RuntimeError("Gemini API key가 하나도 없습니다.")
+            raise RuntimeError(
+                ".env에 실제 GEMINI_API_KEY_1~6 중 하나를 설정하세요."
+            )
 
         self._key_index = 0
         self._config = types.GenerateContentConfig(
