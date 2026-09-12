@@ -75,9 +75,10 @@ class LilpaAI:
                 return response.text or "엄..."
             except Exception as exc:
                 last_error = exc
-                if self._is_daily_quota_error(exc):
-                    break
-                if "429" in str(exc) or "resource exhausted" in str(exc).lower():
+                if (
+                    not self._is_daily_quota_error(exc)
+                    and ("429" in str(exc) or "resource exhausted" in str(exc).lower())
+                ):
                     time.sleep(min(2 ** attempt, 8))
                 continue
 
