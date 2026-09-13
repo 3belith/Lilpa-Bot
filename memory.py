@@ -83,7 +83,12 @@ class ConversationMemory:
         older = visible[:-self.recent_turns]
         return older or None
 
-    def complete_summary(self, channel_id: Any, summary: str | None) -> None:
+    def complete_summary(
+        self,
+        channel_id: Any,
+        summary: str | None,
+        summarized_items: list[dict[str, Any]] | None = None,
+    ) -> None:
         if channel_id not in self._summary_pending:
             return
 
@@ -92,6 +97,13 @@ class ConversationMemory:
             self._summaries[channel_id] = self._merge_summary(
                 self._summaries[channel_id], summary
             )
+
+        if summarized_items:
+            for item in summarized_items:
+                try:
+                    history.remove(item)
+                except ValueError:
+                    continue
 
         while len(history) > self.recent_turns:
             history.popleft()

@@ -32,6 +32,10 @@ ai = LilpaAI()
 memory = ConversationMemory(maxlen=10, recent_turns=4)
 cooldowns: dict[int, float] = {}
 processing_messages: set[int] = set()
+summary_tasks: set[asyncio.Task[None]] = set()
+summary_locks: dict[int, asyncio.Lock] = {}
+MAX_GEMINI_CONCURRENCY = int(os.getenv("GEMINI_MAX_CONCURRENCY", "4"))
+gemini_semaphore = asyncio.Semaphore(MAX_GEMINI_CONCURRENCY)
 COOLDOWN_SECONDS = 1.0
 MAX_CHARS = 2000
 MAX_PROMPT_WORDS = 180
@@ -80,17 +84,26 @@ def make_prompt(channel_id: int, username: str, question: str) -> str:
     )
 
 
-def update_summary(channel_id: int) -> None:
-    items = memory.get_summary_request(channel_id)
-    if not items:
-        return
+async def update_summary(channel_id: int) -> None:
+    lock = summary_locks.setdefault(channel_id, asyncio.Lock())
+    async with lock:
+        items = memory.get_summary_request(channel_id)
+        if not items:
+            return
 
-    try:
-        summary = ai.generate_summary(items)
-    except Exception:
-        logger.exception("Conversation summary failed for channel %s", channel_id)
-        summary = None
-    memory.complete_summary(channel_id, summary)
+        try:
+            async with gemini_semaphore:
+                summary = await asyncio.to_thread(ai.generate_summary, items)
+        except Exception:
+            logger.exception("Conversation summary failed for channel %s", channel_id)
+            summary = None
+        memory.complete_summary(channel_id, summary, items)
+
+
+def schedule_summary(channel_id: int) -> None:
+    task = asyncio.create_task(update_summary(channel_id))
+    summary_tasks.add(task)
+    task.add_done_callback(summary_tasks.discard)
 
 
 def chunk_text(text: str, size: int = MAX_CHARS) -> list[str]:
@@ -163,7 +176,8 @@ async def on_message(message: discord.Message) -> None:
         prompt = make_prompt(channel_id, username, question)
 
         async with message.channel.typing():
-            answer = await asyncio.to_thread(ai.generate, prompt)
+            async with gemini_semaphore:
+                answer = await asyncio.to_thread(ai.generate, prompt)
 
         if answer.startswith("<MOD>"):
             warning = answer[len("<MOD>"):].strip()
@@ -177,8 +191,8 @@ async def on_message(message: discord.Message) -> None:
             return
 
         memory.append(channel_id, username, question, answer)
-        await asyncio.to_thread(update_summary, channel_id)
         await send_answer(message, answer)
+        schedule_summary(channel_id)
     except Exception as exc:
         await message.reply(f"오류: {exc}", mention_author=False)
     finally:
