@@ -35,6 +35,7 @@ processing_messages: set[int] = set()
 COOLDOWN_SECONDS = 1.0
 MAX_CHARS = 2000
 MAX_PROMPT_WORDS = 180
+logger = logging.getLogger(__name__)
 
 EMPTY_MESSAGES = [
     "왜 불렀어?",
@@ -79,6 +80,19 @@ def make_prompt(channel_id: int, username: str, question: str) -> str:
     )
 
 
+def update_summary(channel_id: int) -> None:
+    items = memory.get_summary_request(channel_id)
+    if not items:
+        return
+
+    try:
+        summary = ai.generate_summary(items)
+    except Exception:
+        logger.exception("Conversation summary failed for channel %s", channel_id)
+        summary = None
+    memory.complete_summary(channel_id, summary)
+
+
 def chunk_text(text: str, size: int = MAX_CHARS) -> list[str]:
     return [text[index:index + size] for index in range(0, len(text), size)]
 
@@ -110,7 +124,7 @@ async def on_error(event: str, *args: object, **kwargs: object) -> None:
     if isinstance(error, OSError) and error.errno == errno.ENOENT:
         return
 
-    logging.getLogger(__name__).exception("Discord event failed: %s", event)
+    logger.exception("Discord event failed: %s", event)
 
 
 @bot.event
@@ -153,13 +167,6 @@ async def on_message(message: discord.Message) -> None:
 
         if answer.startswith("<MOD>"):
             warning = answer[len("<MOD>"):].strip()
-            memory.append(
-                channel_id,
-                username,
-                question,
-                warning,
-                is_moderation=True,
-            )
 
             try:
                 await message.delete()
@@ -170,6 +177,7 @@ async def on_message(message: discord.Message) -> None:
             return
 
         memory.append(channel_id, username, question, answer)
+        await asyncio.to_thread(update_summary, channel_id)
         await send_answer(message, answer)
     except Exception as exc:
         await message.reply(f"오류: {exc}", mention_author=False)

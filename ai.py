@@ -61,7 +61,7 @@ class LilpaAI:
             or "per day per project per model" in message
         )
 
-    def generate(self, prompt: str) -> str:
+    def _generate(self, prompt: str, config: types.GenerateContentConfig) -> str:
         last_error: Exception | None = None
 
         for attempt in range(len(self.api_keys)):
@@ -70,9 +70,9 @@ class LilpaAI:
                 response = client.models.generate_content(
                     model=self.model,
                     contents=prompt,
-                    config=self._config,
+                    config=config,
                 )
-                return response.text or "엄..."
+                return response.text or ""
             except Exception as exc:
                 last_error = exc
                 if (
@@ -80,7 +80,6 @@ class LilpaAI:
                     and ("429" in str(exc) or "resource exhausted" in str(exc).lower())
                 ):
                     time.sleep(min(2 ** attempt, 8))
-                continue
 
         if last_error is not None:
             if self._is_daily_quota_error(last_error):
@@ -93,3 +92,25 @@ class LilpaAI:
                 ) from last_error
             raise RuntimeError(f"Gemini 응답 실패: {last_error}")
         raise RuntimeError("Gemini 응답 실패: 사용 가능한 API 키가 없습니다.")
+
+    def generate(self, prompt: str) -> str:
+        return self._generate(prompt, self._config) or "엄..."
+
+    def generate_summary(self, items: list[dict[str, object]]) -> str:
+        lines: list[str] = []
+        for item in items:
+            lines.append(f'사용자: {item["user"]}')
+            lines.append(f'릴파: {item["assistant"]}')
+
+        prompt = (
+            "다음 대화에서 앞으로 기억할 가치가 있는 사실과 주제만 보존해 짧게 요약해.\n"
+            "사용자가 직접 말한 중요한 정보는 보존하고, 사소한 잡담은 제거해.\n"
+            "릴파의 말투, 문체, 말버릇, 답변 길이와 문장 구조는 기억하지 마.\n"
+            "ㅋㅋㅋ, 감탄사, 이모지 등의 스타일 정보도 저장하지 마.\n"
+            "새로운 사실을 추측하거나 만들지 말고, 최대 80단어로 요약 결과만 반환해.\n\n"
+            "[대화]\n"
+            f'{"\n".join(lines)}'
+        )
+        return " ".join(
+            self._generate(prompt, types.GenerateContentConfig()).split()[:80]
+        )
