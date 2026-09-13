@@ -101,6 +101,7 @@ class LilpaAI:
         for item in items:
             lines.append(f'사용자: {item["user"]}')
             lines.append(f'릴파: {item["assistant"]}')
+        conversation = "\n".join(lines)
 
         prompt = (
             "다음 대화에서 앞으로 기억할 가치가 있는 사실과 주제만 보존해 짧게 요약해.\n"
@@ -109,7 +110,7 @@ class LilpaAI:
             "ㅋㅋㅋ, 감탄사, 이모지 등의 스타일 정보도 저장하지 마.\n"
             "새로운 사실을 추측하거나 만들지 말고, 최대 80단어로 요약 결과만 반환해.\n\n"
             "[대화]\n"
-            f'{"\n".join(lines)}'
+            f"{conversation}"
         )
         return " ".join(
             self._generate(prompt, types.GenerateContentConfig()).split()[:80]
