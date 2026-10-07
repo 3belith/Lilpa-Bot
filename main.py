@@ -15,6 +15,8 @@ from dotenv import load_dotenv
 from ai import LilpaAI
 from memory import ConversationMemory
 
+MemoryKey = tuple[int | None, int]
+
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
@@ -31,7 +33,7 @@ memory = ConversationMemory(maxlen=10, recent_turns=4)
 cooldowns: dict[int, float] = {}
 processing_messages: set[int] = set()
 summary_tasks: set[asyncio.Task[None]] = set()
-summary_locks: dict[int, asyncio.Lock] = {}
+summary_locks: dict[MemoryKey, asyncio.Lock] = {}
 MAX_GEMINI_CONCURRENCY = int(os.getenv("GEMINI_MAX_CONCURRENCY", "4"))
 gemini_semaphore = asyncio.Semaphore(MAX_GEMINI_CONCURRENCY)
 COOLDOWN_SECONDS = 1.0
@@ -67,8 +69,8 @@ def get_question(message: discord.Message) -> str:
         .strip()
     )
 
-def make_prompt(channel_id: int, username: str, question: str) -> str:
-    context = memory.build_context(channel_id, max_words=MAX_PROMPT_WORDS)
+def make_prompt(memory_key: MemoryKey, username: str, question: str) -> str:
+    context = memory.build_context(memory_key, max_words=MAX_PROMPT_WORDS)
     return (
         "[현재 대화 상대]\n"
         f"이름: {username}\n\n"
@@ -78,10 +80,10 @@ def make_prompt(channel_id: int, username: str, question: str) -> str:
         f"{username}: {question}"
     )
 
-async def update_summary(channel_id: int) -> None:
-    lock = summary_locks.setdefault(channel_id, asyncio.Lock())
+async def update_summary(memory_key: MemoryKey) -> None:
+    lock = summary_locks.setdefault(memory_key, asyncio.Lock())
     async with lock:
-        items = memory.get_summary_request(channel_id)
+        items = memory.get_summary_request(memory_key)
         if not items:
             return
 
@@ -89,12 +91,12 @@ async def update_summary(channel_id: int) -> None:
             async with gemini_semaphore:
                 summary = await asyncio.to_thread(ai.generate_summary, items)
         except Exception:
-            logger.exception("Conversation summary failed for channel %s", channel_id)
+            logger.exception("Conversation summary failed for user %s", memory_key)
             summary = None
-        memory.complete_summary(channel_id, summary, items)
+        memory.complete_summary(memory_key, summary, items)
 
-def schedule_summary(channel_id: int) -> None:
-    task = asyncio.create_task(update_summary(channel_id))
+def schedule_summary(memory_key: MemoryKey) -> None:
+    task = asyncio.create_task(update_summary(memory_key))
     summary_tasks.add(task)
     task.add_done_callback(summary_tasks.discard)
 
@@ -160,8 +162,9 @@ async def on_message(message: discord.Message) -> None:
 
     try:
         username = message.author.display_name
-        channel_id = message.channel.id
-        prompt = make_prompt(channel_id, username, question)
+        guild_id = message.guild.id if message.guild is not None else None
+        memory_key = (guild_id, message.author.id)
+        prompt = make_prompt(memory_key, username, question)
 
         async with message.channel.typing():
             async with gemini_semaphore:
@@ -178,9 +181,9 @@ async def on_message(message: discord.Message) -> None:
             await message.channel.send(f"{message.author.mention} {warning}")
             return
 
-        memory.append(channel_id, username, question, answer)
+        memory.append(memory_key, username, question, answer)
         await send_answer(message, answer)
-        schedule_summary(channel_id)
+        schedule_summary(memory_key)
     except Exception as exc:
         await message.reply(f"오류: {exc}", mention_author=False)
     finally:

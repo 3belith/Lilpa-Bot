@@ -4,6 +4,26 @@ from memory import ConversationMemory
 
 
 class TestConversationMemory(unittest.TestCase):
+    def test_memory_is_isolated_by_server_and_user_key(self):
+        memory = ConversationMemory(maxlen=10, recent_turns=4)
+        first_user = (100, 1)
+        second_user = (100, 2)
+        same_user_other_server = (200, 1)
+
+        memory.append(first_user, "first", "first question", "first answer")
+        memory.append(second_user, "second", "second question", "second answer")
+        memory.append(
+            same_user_other_server,
+            "first",
+            "other server question",
+            "other server answer",
+        )
+
+        first_context = memory.build_context(first_user)
+        self.assertIn("first question", first_context)
+        self.assertNotIn("second question", first_context)
+        self.assertNotIn("other server question", first_context)
+
     def test_summary_is_not_requested_before_ten_turns(self):
         memory = ConversationMemory(maxlen=10, recent_turns=4)
 
