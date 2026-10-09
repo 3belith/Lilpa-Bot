@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import asyncio
 import errno
 import logging
@@ -8,79 +7,57 @@ import random
 import sys
 import time
 from pathlib import Path
-
 import discord
 from dotenv import load_dotenv
-
 from ai import LilpaAI
 from memory import ConversationMemory
-
 MemoryKey = tuple[int | None, int]
-
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
-
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN이 없습니다.")
-
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = discord.Client(intents=intents)
 ai = LilpaAI()
 memory = ConversationMemory(maxlen=10, recent_turns=4)
-
 cooldowns: dict[int, float] = {}
 processing_messages: set[int] = set()
 summary_tasks: set[asyncio.Task[None]] = set()
 summary_locks: dict[MemoryKey, asyncio.Lock] = {}
-
 MAX_GEMINI_CONCURRENCY = int(
     os.getenv("GEMINI_MAX_CONCURRENCY", "4")
 )
 gemini_semaphore = asyncio.Semaphore(MAX_GEMINI_CONCURRENCY)
-
 COOLDOWN_SECONDS = 1.0
 MAX_CHARS = 2000
 MAX_PROMPT_WORDS = 180
-
 RESET_COMMAND = "❗릴파봇+♿️+초기화❗❗❗"
-
 logger = logging.getLogger(__name__)
-
 EMPTY_MESSAGES = [
     "왜 불렀어?",
     "할 말 있어?",
     "듣고 있어.",
     "말해 봐.",
-    "부른 거 아니었어?",
+    "부른 거 아니었어.",
 ]
-
-
 def is_cooldown(user_id: int) -> bool:
     now = time.time()
     last = cooldowns.get(user_id, 0.0)
-
     if now - last < COOLDOWN_SECONDS:
         return True
-
     cooldowns[user_id] = now
     return False
-
-
 def get_question(message: discord.Message) -> str:
     if bot.user is None:
         return message.content.strip()
-
     return (
         message.content
         .replace(f"<@{bot.user.id}>", "")
         .replace(f"<@!{bot.user.id}>", "")
         .strip()
     )
-
-
 def make_prompt(
     memory_key: MemoryKey,
     username: str,
@@ -90,7 +67,6 @@ def make_prompt(
         memory_key,
         max_words=MAX_PROMPT_WORDS,
     )
-
     return (
         "[현재 대화 상대]\n"
         f"이름: {username}\n\n"
@@ -99,19 +75,15 @@ def make_prompt(
         "[현재 메시지]\n"
         f"{username}: {question}"
     )
-
-
 async def update_summary(memory_key: MemoryKey) -> None:
     lock = summary_locks.setdefault(
         memory_key,
         asyncio.Lock(),
     )
-
     async with lock:
         items = memory.get_summary_request(memory_key)
         if not items:
             return
-
         try:
             async with gemini_semaphore:
                 summary = await asyncio.to_thread(
@@ -124,20 +96,15 @@ async def update_summary(memory_key: MemoryKey) -> None:
                 memory_key,
             )
             summary = None
-
         memory.complete_summary(
             memory_key,
             summary,
             items,
         )
-
-
 def schedule_summary(memory_key: MemoryKey) -> None:
     task = asyncio.create_task(update_summary(memory_key))
     summary_tasks.add(task)
     task.add_done_callback(summary_tasks.discard)
-
-
 def chunk_text(
     text: str,
     size: int = MAX_CHARS,
@@ -146,40 +113,29 @@ def chunk_text(
         text[index:index + size]
         for index in range(0, len(text), size)
     ]
-
-
 async def send_answer(
     message: discord.Message,
     text: str,
 ) -> None:
     prefix = f"{message.author.mention}\n"
     first_limit = MAX_CHARS - len(prefix)
-
     if len(text) <= first_limit:
         await message.reply(
             f"{prefix}{text}",
             mention_author=False,
         )
         return
-
     first_part = text[:first_limit]
-
     await message.reply(
         f"{prefix}{first_part}",
         mention_author=False,
     )
-
     remaining = text[first_limit:]
-
     for part in chunk_text(remaining):
         await message.channel.send(part)
-
-
 @bot.event
 async def on_ready() -> None:
     print(f"{bot.user} 실행 완료")
-
-
 @bot.event
 async def on_error(
     event: str,
@@ -187,59 +143,44 @@ async def on_error(
     **kwargs: object,
 ) -> None:
     error = sys.exc_info()[1]
-
     if isinstance(error, OSError) and error.errno == errno.ENOENT:
         return
-
     logger.exception("Discord event failed: %s", event)
-
-
 @bot.event
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
-
     if bot.user is None:
         return
-
-    # 대화 기억 초기화 명령
+    # 대화 기억 초기화
     if message.content.strip() == RESET_COMMAND:
         if bot.user not in message.mentions:
             return
-
         memory_key: MemoryKey = (
             message.guild.id if message.guild is not None else None,
             message.author.id,
         )
-
-        # 진행 중인 요약 작업이 있다면 취소
         lock = summary_locks.get(memory_key)
-
+        # 요약 작업 중이면 초기화를 잠시 보류
         if lock is not None and lock.locked():
             await message.reply(
                 "잠깐만, 이전 대화 정리 중이야. 다시 시도해 봐.",
                 mention_author=False,
             )
             return
-
-        # ConversationMemory에 reset() 메서드가 필요함
+        # ConversationMemory에 reset() 메서드 필요
         memory.reset(memory_key)
-
         await message.reply(
             "왐마야! 우리 대화 기억 초기화했어!",
             mention_author=False,
         )
         return
-
-    # 봇 멘션이 없으면 일반 메시지는 무시
+    # 봇을 멘션한 메시지만 처리
     if bot.user not in message.mentions:
         return
-
     if message.id in processing_messages:
         return
-
     processing_messages.add(message.id)
-
     if is_cooldown(message.author.id):
         try:
             await message.reply(
@@ -249,9 +190,7 @@ async def on_message(message: discord.Message) -> None:
         finally:
             processing_messages.discard(message.id)
         return
-
     question = get_question(message)
-
     if not question:
         try:
             await message.reply(
@@ -262,404 +201,55 @@ async def on_message(message: discord.Message) -> None:
         finally:
             processing_messages.discard(message.id)
         return
-
     try:
         username = message.author.display_name
-
         guild_id = (
             message.guild.id
             if message.guild is not None
             else None
         )
-
         memory_key: MemoryKey = (
             guild_id,
             message.author.id,
         )
-
         prompt = make_prompt(
             memory_key,
             username,
             question,
         )
-
         async with message.channel.typing():
             async with gemini_semaphore:
                 answer = await asyncio.to_thread(
                     ai.generate,
                     prompt,
                 )
-
         if answer.startswith("<MOD>"):
             warning = answer[len("<MOD>"):].strip()
-
             try:
                 await message.delete()
             except (discord.Forbidden, discord.NotFound):
                 pass
-
             await message.channel.send(
                 f"{message.author.mention} {warning}"
             )
             return
-
         memory.append(
             memory_key,
             username,
             question,
             answer,
         )
-
         await send_answer(message, answer)
         schedule_summary(memory_key)
-
     except Exception as exc:
         logger.exception("Message processing failed")
-
         await message.reply(
             f"오류: {exc}",
             mention_author=False,
         )
-
     finally:
         processing_messages.discard(message.id)
-
-
 def run_bot() -> None:
     bot.run(DISCORD_TOKEN)
-
-
-if __name__ == "__main__":
-    run_bot()from __future__ import annotations
-
-import asyncio
-import errno
-import logging
-import os
-import random
-import sys
-import time
-from pathlib import Path
-
-import discord
-from dotenv import load_dotenv
-
-from ai import LilpaAI
-from memory import ConversationMemory
-
-MemoryKey = tuple[int | None, int]
-
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
-
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-if not DISCORD_TOKEN:
-    raise RuntimeError("DISCORD_TOKEN이 없습니다.")
-
-intents = discord.Intents.default()
-intents.message_content = True
-
-bot = discord.Client(intents=intents)
-ai = LilpaAI()
-memory = ConversationMemory(maxlen=10, recent_turns=4)
-
-cooldowns: dict[int, float] = {}
-processing_messages: set[int] = set()
-summary_tasks: set[asyncio.Task[None]] = set()
-summary_locks: dict[MemoryKey, asyncio.Lock] = {}
-
-MAX_GEMINI_CONCURRENCY = int(
-    os.getenv("GEMINI_MAX_CONCURRENCY", "4")
-)
-gemini_semaphore = asyncio.Semaphore(MAX_GEMINI_CONCURRENCY)
-
-COOLDOWN_SECONDS = 1.0
-MAX_CHARS = 2000
-MAX_PROMPT_WORDS = 180
-
-RESET_COMMAND = "❗릴파봇+♿️+초기화❗❗❗"
-
-logger = logging.getLogger(__name__)
-
-EMPTY_MESSAGES = [
-    "왜 불렀어?",
-    "할 말 있어?",
-    "듣고 있어.",
-    "말해 봐.",
-    "부른 거 아니었어?",
-]
-
-
-def is_cooldown(user_id: int) -> bool:
-    now = time.time()
-    last = cooldowns.get(user_id, 0.0)
-
-    if now - last < COOLDOWN_SECONDS:
-        return True
-
-    cooldowns[user_id] = now
-    return False
-
-
-def get_question(message: discord.Message) -> str:
-    if bot.user is None:
-        return message.content.strip()
-
-    return (
-        message.content
-        .replace(f"<@{bot.user.id}>", "")
-        .replace(f"<@!{bot.user.id}>", "")
-        .strip()
-    )
-
-
-def make_prompt(
-    memory_key: MemoryKey,
-    username: str,
-    question: str,
-) -> str:
-    context = memory.build_context(
-        memory_key,
-        max_words=MAX_PROMPT_WORDS,
-    )
-
-    return (
-        "[현재 대화 상대]\n"
-        f"이름: {username}\n\n"
-        "[최근 대화 맥락]\n"
-        f"{context}\n\n"
-        "[현재 메시지]\n"
-        f"{username}: {question}"
-    )
-
-
-async def update_summary(memory_key: MemoryKey) -> None:
-    lock = summary_locks.setdefault(
-        memory_key,
-        asyncio.Lock(),
-    )
-
-    async with lock:
-        items = memory.get_summary_request(memory_key)
-        if not items:
-            return
-
-        try:
-            async with gemini_semaphore:
-                summary = await asyncio.to_thread(
-                    ai.generate_summary,
-                    items,
-                )
-        except Exception:
-            logger.exception(
-                "Conversation summary failed for user %s",
-                memory_key,
-            )
-            summary = None
-
-        memory.complete_summary(
-            memory_key,
-            summary,
-            items,
-        )
-
-
-def schedule_summary(memory_key: MemoryKey) -> None:
-    task = asyncio.create_task(update_summary(memory_key))
-    summary_tasks.add(task)
-    task.add_done_callback(summary_tasks.discard)
-
-
-def chunk_text(
-    text: str,
-    size: int = MAX_CHARS,
-) -> list[str]:
-    return [
-        text[index:index + size]
-        for index in range(0, len(text), size)
-    ]
-
-
-async def send_answer(
-    message: discord.Message,
-    text: str,
-) -> None:
-    prefix = f"{message.author.mention}\n"
-    first_limit = MAX_CHARS - len(prefix)
-
-    if len(text) <= first_limit:
-        await message.reply(
-            f"{prefix}{text}",
-            mention_author=False,
-        )
-        return
-
-    first_part = text[:first_limit]
-
-    await message.reply(
-        f"{prefix}{first_part}",
-        mention_author=False,
-    )
-
-    remaining = text[first_limit:]
-
-    for part in chunk_text(remaining):
-        await message.channel.send(part)
-
-
-@bot.event
-async def on_ready() -> None:
-    print(f"{bot.user} 실행 완료")
-
-
-@bot.event
-async def on_error(
-    event: str,
-    *args: object,
-    **kwargs: object,
-) -> None:
-    error = sys.exc_info()[1]
-
-    if isinstance(error, OSError) and error.errno == errno.ENOENT:
-        return
-
-    logger.exception("Discord event failed: %s", event)
-
-
-@bot.event
-async def on_message(message: discord.Message) -> None:
-    if message.author.bot:
-        return
-
-    if bot.user is None:
-        return
-
-    # 대화 기억 초기화 명령
-    if message.content.strip() == RESET_COMMAND:
-        if bot.user not in message.mentions:
-            return
-
-        memory_key: MemoryKey = (
-            message.guild.id if message.guild is not None else None,
-            message.author.id,
-        )
-
-        # 진행 중인 요약 작업이 있다면 취소
-        lock = summary_locks.get(memory_key)
-
-        if lock is not None and lock.locked():
-            await message.reply(
-                "잠깐만, 이전 대화 정리 중이야. 다시 시도해 봐.",
-                mention_author=False,
-            )
-            return
-
-        # ConversationMemory에 reset() 메서드가 필요함
-        memory.reset(memory_key)
-
-        await message.reply(
-            "왐마야! 우리 대화 기억 초기화했어!",
-            mention_author=False,
-        )
-        return
-
-    # 봇 멘션이 없으면 일반 메시지는 무시
-    if bot.user not in message.mentions:
-        return
-
-    if message.id in processing_messages:
-        return
-
-    processing_messages.add(message.id)
-
-    if is_cooldown(message.author.id):
-        try:
-            await message.reply(
-                "ㄱㄷ",
-                mention_author=False,
-            )
-        finally:
-            processing_messages.discard(message.id)
-        return
-
-    question = get_question(message)
-
-    if not question:
-        try:
-            await message.reply(
-                f"{message.author.mention} "
-                f"{random.choice(EMPTY_MESSAGES)}",
-                mention_author=False,
-            )
-        finally:
-            processing_messages.discard(message.id)
-        return
-
-    try:
-        username = message.author.display_name
-
-        guild_id = (
-            message.guild.id
-            if message.guild is not None
-            else None
-        )
-
-        memory_key: MemoryKey = (
-            guild_id,
-            message.author.id,
-        )
-
-        prompt = make_prompt(
-            memory_key,
-            username,
-            question,
-        )
-
-        async with message.channel.typing():
-            async with gemini_semaphore:
-                answer = await asyncio.to_thread(
-                    ai.generate,
-                    prompt,
-                )
-
-        if answer.startswith("<MOD>"):
-            warning = answer[len("<MOD>"):].strip()
-
-            try:
-                await message.delete()
-            except (discord.Forbidden, discord.NotFound):
-                pass
-
-            await message.channel.send(
-                f"{message.author.mention} {warning}"
-            )
-            return
-
-        memory.append(
-            memory_key,
-            username,
-            question,
-            answer,
-        )
-
-        await send_answer(message, answer)
-        schedule_summary(memory_key)
-
-    except Exception as exc:
-        logger.exception("Message processing failed")
-
-        await message.reply(
-            f"오류: {exc}",
-            mention_author=False,
-        )
-
-    finally:
-        processing_messages.discard(message.id)
-
-
-def run_bot() -> None:
-    bot.run(DISCORD_TOKEN)
-
-
 if __name__ == "__main__":
     run_bot()
