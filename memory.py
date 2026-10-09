@@ -125,3 +125,8 @@ class ConversationMemory:
 
     def get_recent(self, channel_id: Any) -> list[dict[str, Any]]:
         return self._visible_items(channel_id)
+    def reset(self, channel_id: Any) -> None:
+        self._history.pop(channel_id, None)
+        self._summaries.pop(channel_id, None)
+        self._summary_pending.discard(channel_id)
+
