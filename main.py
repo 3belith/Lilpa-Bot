@@ -133,11 +133,16 @@ async def on_error(event: str, *args: object, **kwargs: object) -> None:
 @bot.event
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
-        return
-
+            return
     if bot.user not in message.mentions:
         return
+    if self.user in message.mentions and message.content.split()[-1:] == ["릴파초기화❓❗❗"]:
+        user_id = message.author.id
 
+        history.pop(user_id, None)
+        summaries.pop(user_id, None)
+        turn_count.pop(user_id, None)
+        return
     if message.id in processing_messages:
         return
     processing_messages.add(message.id)
