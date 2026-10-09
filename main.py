@@ -153,22 +153,15 @@ async def on_message(message: discord.Message) -> None:
     if bot.user is None:
         return
     # 대화 기억 초기화
-    if message.content.strip() == RESET_COMMAND:
-        if bot.user not in message.mentions:
-            return
+        # 대화 기억 초기화
+    if (
+        bot.user in message.mentions
+        and "❗릴파봇+♿️+초기화❗❗❗" in message.content
+    ):
         memory_key: MemoryKey = (
             message.guild.id if message.guild is not None else None,
             message.author.id,
         )
-        lock = summary_locks.get(memory_key)
-        # 요약 작업 중이면 초기화를 잠시 보류
-        if lock is not None and lock.locked():
-            await message.reply(
-                "잠깐만, 이전 대화 정리 중이야. 다시 시도해 봐.",
-                mention_author=False,
-            )
-            return
-        # ConversationMemory에 reset() 메서드 필요
         memory.reset(memory_key)
         await message.reply(
             "왐마야! 우리 대화 기억 초기화했어!",
