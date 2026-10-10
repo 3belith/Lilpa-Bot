@@ -148,7 +148,7 @@ async def on_error(
     logger.exception("Discord event failed: %s", event)
 @bot.event
 async def on_message(message: discord.Message) -> None:
-       if message.author.bot:
+    if message.author.bot:
         return
 
     if bot.user is None:
