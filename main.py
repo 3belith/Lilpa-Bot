@@ -148,32 +148,37 @@ async def on_error(
     logger.exception("Discord event failed: %s", event)
 @bot.event
 async def on_message(message: discord.Message) -> None:
-        # 릴파봇 대화 기억 초기화
+       if message.author.bot:
+        return
+
+    if bot.user is None:
+        return
+
     normalized = "".join(
         c for c in message.content
         if c.isalnum()
     )
-    if (
-        bot.user in message.mentions
-        and "릴파봇초기화" in normalized
-    ):
-        memory_key: MemoryKey = (
+
+    bot_mentioned = any(
+        user.id == bot.user.id
+        for user in message.mentions
+    )
+
+    if bot_mentioned and "릴파봇초기화" in normalized:
+        memory_key = (
             message.guild.id if message.guild else None,
             message.author.id,
         )
-        # 이전 요약 작업 취소
-        for task in list(summary_tasks):
-            if not task.done():
-                task.cancel()
+
         memory.reset(memory_key)
-        await message.reply(
-            "왐마야! 우리 대화 기억 초기화했어!",
-            mention_author=False,
+
+        await message.channel.send(
+            f"{message.author.mention} 대화 기억 초기화 완료!"
         )
+        print(f"[초기화 성공] {memory_key}")
         return
-    if message.author.bot:
-        return
-    if bot.user is None:
+
+    if not bot_mentioned:
         return
     if bot.user not in message.mentions:
         return
