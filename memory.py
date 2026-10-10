@@ -129,4 +129,3 @@ class ConversationMemory:
         self._history.pop(channel_id, None)
         self._summaries.pop(channel_id, None)
         self._summary_pending.discard(channel_id)
-
