@@ -17,26 +17,28 @@ class ConversationMemory:
         self.max_summary_words = 80
         self.recent_turns = min(recent_turns, maxlen)
         self.summary_prefix = "[이전 대화 요약]"
-
+        
     def append(
-        self,
-        channel_id: Any,
-        username: str,
-        question: str,
-        answer: str,
-    ) -> None:
-        history = self._history[channel_id]
-        history.append(
-            {
-                "username": username,
-                "user": question,
-                "assistant": answer,
-            }
-        )
+    self,
+    channel_id: Any,
+    username: str,
+    question: str,
+    answer: str,
+    author_id: int,
+) -> None:
+    history = self._history[channel_id]
+    history.append(
+        {
+            "author_id": str(author_id),
+            "username": username,
+            "user": question,
+            "assistant": answer,
+        }
+    )
 
-        if len(history) == history.maxlen:
-            self._summary_pending.add(channel_id)
-
+    if len(history) == history.maxlen:
+        self._summary_pending.add(channel_id)
+    
     def _visible_items(self, channel_id: Any) -> list[dict[str, Any]]:
         return list(self._history[channel_id])
 
