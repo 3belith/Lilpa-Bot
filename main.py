@@ -238,11 +238,12 @@ async def on_message(message: discord.Message) -> None:
             )
             return
         memory.append(
-            memory_key,
-            username,
-            question,
-            answer,
-        )
+    channel_id,
+    message.author.display_name,
+    message.content,
+    answer,
+    message.author.id,
+)
         await send_answer(message, answer)
         schedule_summary(memory_key)
     except Exception as exc:
