@@ -96,23 +96,43 @@ class LilpaAI:
     def generate(self, prompt: str) -> str:
         return self._generate(prompt, self._config) or "엄..."
 
+    
     def generate_summary(self, items: list[dict[str, object]]) -> str:
         lines: list[str] = []
+
         for item in items:
-            lines.append(f'사용자: {item["user"]}')
-            lines.append(f'릴파: {item["assistant"]}')
+            author_id = item.get("author_id")
+            username = item.get("username", "알 수 없음")
+
+            if author_id is None:
+                speaker = f"화자 미확인 (이름: {username})"
+            else:
+                speaker = f"ID={author_id}, 이름={username}"
+
+            lines.append(f"[사용자 발언 | {speaker}]")
+            lines.append(str(item["user"]))
+            lines.append("[릴파의 답변]")
+            lines.append(str(item["assistant"]))
+
         conversation = "\n".join(lines)
 
         prompt = (
-            "다음 대화에서 앞으로 기억할 가치가 있는 사실과 주제 및 누가 한 말인지만 보존해 짧게 요약해.\n"
-            "사용자가 직접 말한 중요한 정보는 보존하고, 사소한 잡담은 제거해.\n"
-            "릴파의 말투, 문체, 말버릇, 답변 길이와 문장 구조는 기억하지 마.\n"
-            "ㅋㅋㅋ, 감탄사, 이모지 등의 스타일 정보도 저장하지 마.\n"
-            "대화가 오래됐을수록 저장 우선도가 낮고, 최신 대화일수록, 해당 대화의 핵심 내용일수록 우선적으로 저장해.\n"
-            "새로운 사실을 추측하거나 만들지 말고, 최대 80단어로 요약 결과만 반환해.\n\n"
+            "다음 Discord 대화 기록을 요약해.\n"
+            "반드시 다음 규칙을 지켜.\n"
+            "1. 각 사용자 발언의 ID와 이름을 구분해.\n"
+            "2. 서로 다른 ID의 사용자를 절대 같은 사람으로 취급하지 마.\n"
+            "3. 한 사용자의 발언을 다른 사용자에게 귀속하지 마.\n"
+            "4. 화자 미확인 발언의 작성자를 추측하지 마.\n"
+            "5. 사용자의 발언과 릴파의 답변을 구분해.\n"
+            "6. 사용자가 직접 말한 중요한 사실과 핵심 대화를 보존해.\n"
+            "7. 릴파의 말투, 문체, 말버릇, 답변 스타일은 기억하지 마.\n"
+            "8. 새로운 사실이나 사용자 간의 관계를 추측해 만들지 마.\n"
+            "9. 최신 대화의 중요도를 고려하되, 중요한 과거 정보도 보존해.\n"
+            "10. 최대 80단어로 요약하고 요약 결과만 반환해.\n\n"
             "[대화]\n"
             f"{conversation}"
         )
+
         return " ".join(
             self._generate(prompt, types.GenerateContentConfig()).split()[:80]
         )
