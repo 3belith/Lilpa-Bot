@@ -18,30 +18,32 @@ class ConversationMemory:
         self.recent_turns = min(recent_turns, maxlen)
         self.summary_prefix = "[이전 대화 요약]"
         
-    def append(
-    self,
-    channel_id: Any,
-    username: str,
-    question: str,
-    answer: str,
-    author_id: int,
-) -> None:
-    history = self._history[channel_id]
-    history.append(
-        {
-            "author_id": str(author_id),
-            "username": username,
-            "user": question,
-            "assistant": answer,
-        }
-    )
-
-    if len(history) == history.maxlen:
-        self._summary_pending.add(channel_id)
     
+    def append(
+        self,
+        channel_id: Any,
+        username: str,
+        question: str,
+        answer: str,
+        author_id: int,
+    ) -> None:
+        history = self._history[channel_id]
+        history.append(
+            {
+                "author_id": str(author_id),
+                "username": username,
+                "user": question,
+                "assistant": answer,
+            }
+        )
+
+        if len(history) == history.maxlen:
+            self._summary_pending.add(channel_id)
+
     def _visible_items(self, channel_id: Any) -> list[dict[str, Any]]:
         return list(self._history[channel_id])
 
+    
     def build_context(
         self,
         channel_id: Any,
@@ -52,21 +54,30 @@ class ConversationMemory:
 
         recent = self._visible_items(channel_id)[-self.recent_turns:]
         recent_lines: list[str] = []
+
         for item in reversed(recent):
+            author_id = item.get("author_id", "unknown")
+            username = item.get("username", "알 수 없음")
+
             turn = [
-                f'{item["username"]}: {item["user"]}',
+                f'[사용자 ID={author_id}, 이름={username}]: {item["user"]}',
                 f'릴파: {item["assistant"]}',
             ]
+
             candidate = turn + recent_lines
             if len("\n".join(["[최근 대화]"] + candidate).split()) > max_words:
                 if not recent_lines:
                     available_words = max(0, max_words - 2)
-                    recent_lines = [" ".join(" ".join(turn).split()[:available_words])]
+                    recent_lines = [
+                        " ".join(" ".join(turn).split()[:available_words])
+                    ]
                 break
+
             recent_lines = candidate
 
         lines = ["[최근 대화]", *recent_lines] if recent_lines else []
         summary = self._summaries[channel_id]
+
         if summary:
             remaining_words = max_words - len("\n".join(lines).split()) - 2
             if remaining_words > 0:
@@ -75,6 +86,7 @@ class ConversationMemory:
                     " ".join(summary.split()[:remaining_words]),
                     *lines,
                 ]
+
         return "\n".join(lines) if lines else "(아직 최근 대화 없음)"
 
     def get_summary_request(self, channel_id: Any) -> list[dict[str, Any]] | None:
